@@ -1,12 +1,5 @@
 largest_joltages = []
 
-# test_input = <<INPUT
-# 987654321111111
-# 811111111111119
-# 234234234234278
-# 818181911112111
-# INPUT
-
 File.open("#{Dir.pwd}/input.txt") do |file|
   file.each_line.with_index do |line, index|
     puts "starting bank #{index}"
@@ -17,16 +10,6 @@ File.open("#{Dir.pwd}/input.txt") do |file|
     as_array = line.strip.split('').map(&:to_i)
 
     puts "as_array: #{as_array}"
-
-    # # find highest number in all but last position, and its index
-    # highest_ten = as_array[0..-2].max
-    # ten_index = as_array.index(highest_ten)
-
-    # # find highest number to the right of index position
-    # highest_one = as_array[(ten_index + 1) ..-1].max
-
-    # # combine and store
-    # largest_joltage = (highest_ten.to_i * 10) + highest_one.to_i
 
     # in descending order from 12 to 1
     search_pointer = 12
@@ -39,6 +22,7 @@ File.open("#{Dir.pwd}/input.txt") do |file|
     # find each digit
     until search_pointer == 0
       puts "search_pointer now: #{search_pointer}"
+
       # 1: find max in the characters that CAN be the first of X: that is, in 0...-X
       search_range = as_array[front_index..-search_pointer]
       puts "search_range: #{search_range}"
