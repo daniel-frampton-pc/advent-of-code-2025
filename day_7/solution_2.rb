@@ -1,3 +1,5 @@
+start_time = Time.now
+
 # read file or get text input
 
 # INPUT = %w[
@@ -65,3 +67,8 @@ end
 result = count_branching_paths_from(1, initial_ray_index)
 
 puts "final counter: #{result}"
+
+end_time = Time.now
+
+elapsed_time = end_time - start_time
+puts "elapsed_time: #{elapsed_time}"
