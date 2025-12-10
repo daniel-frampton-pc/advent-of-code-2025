@@ -25,28 +25,61 @@ puts "Parsing complete"
 # puts "parsed:"
 # pp parsed
 
-width = parsed.map { |x, y| x }.max + 1
-height = parsed.map { |x, y| y }.max + 1
+x_values = parsed.map { |x, y| x }
+y_values = parsed.map { |x, y| y }
+max_x = x_values.max
+max_y = y_values.max
+min_x = x_values.min
+min_y = y_values.min
 
-# 1: create a grid with width of max Y, width of max X
-# TODO: this runs indefinitely; probably hitting memory limit?
-@grid = Array.new(height) { Array.new(width) { '.' }}
+puts "min_x: #{min_x}"
+puts "min_y: #{min_y}"
+puts "max_x: #{max_x}"
+puts "max_y: #{max_y}"
 
-puts "Grid creation complete"
+# going to try using local file-based DB
+require 'sqlite3'
 
-# puts "grid:"
-# pp @grid
+# 1: create DB to track known points that are corners and walls
 
-def mark_cell(x, y, character)
-  # puts "marking cell #{x}, #{y} as '#{character}'"
-  @grid[y][x] = character
+# Create DB
+@db = SQLite3::Database.new( "grid.db" )
+
+# reset the DB
+@db.execute("drop table if exists points;")
+
+# Create a table 
+@db.execute <<-SQL
+  create table points (
+    x int,
+    y int
+  );
+
+  create unique index index_x_y
+  on points (x, y);
+SQL
+
+# define access methods
+
+def mark(x, y)
+  puts "marking: #{x}, #{y}"
+  @db.execute(" INSERT INTO points VALUES( #{x}, #{y} )")
 end
+
+def marked?(x, y)
+  puts "checking whether marked: #{x}, #{y}"
+  result = @db.execute("SELECT 1 FROM points WHERE x = ? AND y = ?", [x, y])
+  # puts "found result: #{result}"
+  !!result.first
+end
+
+puts "Grid DB setup complete"
 
 # a, b = tuples of [x, y]
 def mark_line_between(a, b)
   # mark both corners (could only do 2nd, but need for first)
-  mark_cell(a[0], a[1], 'R')
-  mark_cell(b[0], b[1], 'R')
+  mark(a[0], a[1])
+  mark(b[0], b[1])
 
   # mark the points between, either horizontally or vertically, based on which plane is shared
   # TODO: abstract this out
@@ -61,14 +94,14 @@ def mark_line_between(a, b)
       # traverse top to bottom
       pointer = top_y + 1
       until pointer == bottom_y
-        mark_cell(a[0], pointer, 'G')
+        mark(a[0], pointer)
         pointer += 1
       end
     else
       # traverse from bottom to top
       pointer = bottom_y - 1
       until pointer == top_y
-        mark_cell(a[0], pointer, 'G')
+        mark(a[0], pointer)
         pointer -= 1
       end
     end
@@ -83,23 +116,23 @@ def mark_line_between(a, b)
       # traverse left to right
       pointer = left_x + 1
       until pointer == right_x
-        mark_cell(pointer, a[1], 'G')
+        mark(pointer, a[1])
         pointer += 1
       end
     else
       # traverse right to left
       pointer = right_x - 1
       until pointer == left_x
-        mark_cell(pointer, a[1], 'G')
+        mark(pointer, a[1])
         pointer -= 1
       end
     end
   end
 end
 
-puts "Starting line drawing"
+puts "Starting point marking"
 
-# 2: traverse the grid and mark each cell the lines cross, R for red, G for green
+# 2: traverse the virtual grid and mark each cell the lines cross
 parsed.each_cons(2) do |point_a, point_b|
   mark_line_between(point_a, point_b)
 end
@@ -107,7 +140,7 @@ end
 # then do it one more time for the last and first
 mark_line_between(parsed[-1], parsed[0])
 
-puts "Line drawing complete"
+puts "Point marking complete"
 
 # puts "grid now:"
 # pp @grid
@@ -116,32 +149,60 @@ puts "Starting filling in"
 
 # 3: fill in the polygon by iterating left to right
 # TODO: hypothetically this means drawing horizontal lines above is unnecessary
-@grid.each_with_index do |row, row_index|
-  puts "Filling in row #{row_index}"
+y_pointer = min_y
+until y_pointer > max_y do
+  puts "Filling in row #{y_pointer}"
+
   write_mode = false
 
-  row.each_with_index do |cell, cell_index|
-    next if cell_index == 0
+  prev_cell_marked = nil
+
+  x_pointer = min_x
+  until x_pointer > max_x
+    cell_marked = marked?(x_pointer, y_pointer)
+
+    # skip first column, no prev cell to compare with
+    if y_pointer == 0
+      prev_cell_marked = cell_marked
+      x_pointer += 1
+      next
+    end
 
     # if previous cell was wall and current is not, toggle write_mode
-    if !write_mode && @grid[row_index][cell_index - 1] != '.' && cell == '.'
+    if !write_mode && prev_cell_marked && !cell_marked
       write_mode = true
-    # if write mode is on and we've passed a wall, break to next row
-    elsif write_mode && @grid[row_index][cell_index - 1] != '.' && cell != '.'
-      break
+    elsif write_mode && prev_cell_marked && cell_marked
+      write_mode = false
     end
     
-    # if in write mode and cell is empty, write to current cell
-    if write_mode && cell == '.'
-      @grid[row_index][cell_index] = 'G'
+    if write_mode && !cell_marked
+      mark(x_pointer, y_pointer)
+      cell_marked = true
     end
+
+    # cache cell value
+    prev_cell_marked = cell_marked
+
+    # increment column pointer
+    x_pointer += 1
   end
+
+  # increment row pointer
+  y_pointer += 1
 end
 
 puts "Filling in complete"
 
-# puts "grid now:"
-# pp @grid
+# # for debugging, draw the grid
+# all_x_coords = (0..max_x).to_a
+# grid = (0..max_y).to_a.map do |y|
+#   all_x_coords.map do |x|
+#     marked?(x, y) ? 'X' : '.'
+#   end.join
+# end.join("\n")
+
+# puts "filled in grid:"
+# pp grid
 
 puts "Checking for rectangle sizes"
 
@@ -155,21 +216,25 @@ rectangle_sizes = parsed.permutation(2).map.with_index do |tuple, index|
   b_x, b_y = tuple[1]
 
   # get min and max X, min and max Y
-  min_x, max_x = a_x < b_x ? [a_x, b_x] : [b_x, a_x]
-  min_y, max_y = a_y < b_y ? [a_y, b_y] : [b_y, a_y]
+  rect_min_x, rect_max_x = a_x < b_x ? [a_x, b_x] : [b_x, a_x]
+  rect_min_y, rect_max_y = a_y < b_y ? [a_y, b_y] : [b_y, a_y]
 
-  # check for overlap with R and G, otherwise return 0
+  # check for overlap with marked points, otherwise return 0
+  rect_y_coords = (rect_min_y..rect_max_y).to_a
+  rect_x_coords = (rect_min_x..rect_max_x).to_a
   # from start row to end row (by Y index)...
-  in_bounds = @grid[min_y..max_y].all? do |row|
+  in_bounds = rect_y_coords.all? do |rect_y|
     # from start char to end char... check for all Rs and Gs
-    row[min_x..max_x].join.match?(/^[RG]*$/)
+    rect_x_coords.all? do |rect_x|
+      marked?(rect_x, rect_y)
+    end
   end
 
   # if in bounds, compute and return size, otherwise return 0
   if in_bounds
     # get side lengths based on which point is farther from origin
-    x_length = max_x - min_x + 1
-    y_length = max_y - min_y + 1
+    x_length = rect_max_x - rect_min_x + 1
+    y_length = rect_max_y - rect_min_y + 1
   
     x_length * y_length
   else
